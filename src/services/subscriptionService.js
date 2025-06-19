@@ -3,7 +3,17 @@ import { safeJson } from '../utils/safeJson.js';
 
 const prisma = new PrismaClient()
 
-export const getUserSubscriptionById = async (req, res) => {
+export const getSubscriptionTypeById = async (id) => {
+    const subscription = await prisma.subscriptions.findUnique({
+        where: {
+            id: id
+        }
+    });
+
+    return subscription ? subscription : null;
+}
+
+export const getUserSubscriptionById = async (userId) => {
     const userId = req.params.id;
     const activeSub = await prisma.user_subscriptions.findFirst({
         where: {
