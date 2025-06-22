@@ -14,18 +14,14 @@ export const getSubscriptionTypeById = async (id) => {
 }
 
 export const getUserSubscriptionById = async (userId) => {
-    const userId = req.params.id;
     const activeSub = await prisma.user_subscriptions.findFirst({
         where: {
             user_id: BigInt(userId),
             is_active: true
-        },
-        include: {
-            subscription: true
         }
     });
 
-    res.json(safeJson(activeSub));
+    return safeJson(activeSub);
 }
 
 export const updateUserSubscription = async (input) => {
