@@ -1,101 +1,114 @@
 import { PrismaClient } from '../generated/prisma/index.js';
-import { getSubscriptionTypeById, getUserSubscriptionById } from './subscriptionService.js';
+import { getSubscriptionTypeById, getUserSubscriptionById, getUserSubscriptionTypeById } from './subscriptionService.js';
+import * as redisClient from "../clients/redisClient.js"
 
 const prisma = new PrismaClient();
 
-export const getUserLimits =  async (userId) => {
-  const userLimits = await prisma.user_limits.findUnique({
-    where: {
-      user_id: userId
+export const limitService = {
+  getUserLimits:  async (userId) => {
+    const exists = await redisClient.hasLimit(userId);
+    if(exists) {
+      return await redisClient.getLimit(userId);
+    } else {
+      limitService.setUserLimit(userId)
+      .then(async res => {
+        return await redisClient.getLimit(userId);
+      });
     }
-  });
-
-  return userLimits ? userLimits : null;
-}
-
-export const checkUserTextLimit = async (userId, symbols) => {
-  const userLimits = await getUserLimits(userId);
-
-  if(!userLimits) throw new Error(`Could not retrieve user limits, user id: ${userId}`);
   
-  const userSubscription = await getUserSubscriptionById(userId);
+  },
 
-  if(!userSubscription) throw new Error(`Could not retrieve userSubscription, user id: ${userId}`);
-  
-  const subscription = await getSubscriptionTypeById(userSubscription.subscription_id);
+  checkUserTextLimit: async (userId, text) => {
+    console.log("start checking")
+    const userLimits = await limitService.getUserLimits(userId);
 
-  if(!subscription) throw new Error(`Could not retrieve subscription type, user id: ${userId}`);
+    if(!userLimits) throw new Error(`Could not retrieve user limits, user id: ${userId}`);
 
-  const symbolsDifference = subscription.daily_limit_text - userLimits.used_symbols - symbols;
+    const diff = userLimits.text - text;
+    console.log("something", diff);
+    console.log(userLimits);
 
-  if(symbolsDifference < 0) return false;
-  return true;
-}
+    if(diff < 0) return false;
+    return true;
+  },
 
-export const checkUserAudioLimit = async (userId, audio) => {
-  const userLimits = await getUserLimits(userId);
+  checkUserAudioLimit: async (userId, duration) => {
+    const userLimits = await limitService.getUserLimits(userId);
 
-  if(!userLimits) throw new Error(`Could not retrieve user limits, user id: ${userId}`);
-  
-  const userSubscription = await getUserSubscriptionById(userId);
+    if(!userLimits) throw new Error(`Could not retrieve user limits, user id: ${userId}`);
 
-  if(!userSubscription) throw new Error(`Could not retrieve userSubscription, user id: ${userId}`);
-  
-  const subscription = await getSubscriptionTypeById(userSubscription.subscription_id);
+    const diff = userLimits.audio - duration;
 
-  if(!subscription) throw new Error(`Could not retrieve subscription type, user id: ${userId}`);
+    if(diff < 0) return false;
+    return true;
+  },
 
-  const audioDifference = subscription.daily_limit_audio - userLimits.used_audio - audio;
+  checkUserImageLimit: async (userId, img) => {
+    const userLimits = await limitService.getUserLimits(userId);
 
-  if(audioDifference < 0) return false;
-  return true;
-}
+    if(!userLimits) throw new Error(`Could not retrieve user limits, user id: ${userId}`);
+    
+    const userSubscription = await getUserSubscriptionById(userId);
 
-export const checkUserImageLimit = async (userId, img) => {
-  const userLimits = await getUserLimits(userId);
+    if(!userSubscription) throw new Error(`Could not retrieve userSubscription, user id: ${userId}`);
+    
+    const subscription = await getSubscriptionTypeById(userSubscription.subscription_id);
 
-  if(!userLimits) throw new Error(`Could not retrieve user limits, user id: ${userId}`);
-  
-  const userSubscription = await getUserSubscriptionById(userId);
+    if(!subscription) throw new Error(`Could not retrieve subscription type, user id: ${userId}`);
 
-  if(!userSubscription) throw new Error(`Could not retrieve userSubscription, user id: ${userId}`);
-  
-  const subscription = await getSubscriptionTypeById(userSubscription.subscription_id);
+    const diff = userLimits.photos - img;
 
-  if(!subscription) throw new Error(`Could not retrieve subscription type, user id: ${userId}`);
+    if(diff < 0) return false;
+    return true;
+  },
 
-  const audioDifference = subscription.daily_limit_photos - userLimits.used_photos - img;
+  resetUserLimit: async (userId) => {
+    const userLimits = await prisma.user_limits.findUnique({
+      where: {
+        user_id: userId
+      }
+    });
 
-  if(audioDifference < 0) return false;
-  return true;
-}
+    if(!userLimits) throw new Error(`Could not retrieve user limits, user id: ${userId}`);
+    
+    const userSubscription = await prisma.user_subscriptions.findUnique({
+      where: {
+        user_id: userId
+      }
+    });
 
-export const resetUserLimit = async (userId) => {
-  const userLimits = await prisma.user_limits.findUnique({
-    where: {
-      user_id: userId
-    }
-  });
+    if(!userSubscription) throw new Error(`Could not retrieve userSubscription, user id: ${userId}`);
+    
+    const subscription = await prisma.subscriptions.findUnique({
+      where: {
+        id: userSubscription.subscription_id
+      }
+    });
 
-  if(!userLimits) throw new Error(`Could not retrieve user limits, user id: ${userId}`);
-  
-  const userSubscription = await prisma.user_subscriptions.findUnique({
-    where: {
-      user_id: userId
-    }
-  });
+    if(!subscription) throw new Error(`Could not retrieve subscription type, user id: ${userId}`);
 
-  if(!userSubscription) throw new Error(`Could not retrieve userSubscription, user id: ${userId}`);
-  
-  const subscription = await prisma.subscriptions.findUnique({
-    where: {
-      id: userSubscription.subscription_id
-    }
-  });
+    const updatedUserLimits = await prisma.user_limits.update()
+  },
 
-  if(!subscription) throw new Error(`Could not retrieve subscription type, user id: ${userId}`);
+  setUserLimit: async (userId) => {
+    const subscription = await getUserSubscriptionTypeById(userId);
 
-  const updatedUserLimits = await prisma.user_limits.update()
+    const limits = {
+      text: subscription.daily_limit_text,
+      audio: subscription.daily_limit_audio,
+      photos: subscription.daily_limit_photos
+    };
+    console.log('limits to set:', limits);
+    await redisClient.setLimit(userId, limits);
+  },
+
+  decrementUserLimit: async (userId, field, value) => {
+    const exists = await redisClient.hasLimit(userId);
+
+    if(!exists) await limitService.setUserLimit(userId);
+
+    await redisClient.hincrbyLimit(userId, field, value * (-1));
+  }
 }
 
 // export const changeUserLimit

@@ -24,6 +24,14 @@ export const getUserSubscriptionById = async (userId) => {
     return safeJson(activeSub);
 }
 
+export const getUserSubscriptionTypeById = async (userId) => {
+    const activeSub = await getUserSubscriptionById(userId);
+
+    const subscription = await getSubscriptionTypeById(activeSub.subscription_id);
+
+    return safeJson(subscription);
+}
+
 export const updateUserSubscription = async (input) => {
     const { userId, subscriptionId } = input;
 

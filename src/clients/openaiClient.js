@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import fs from "fs";
 
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -15,13 +16,15 @@ export const translateClient = {
         model: TEXT_MODEL,
         messages: [
           {
-                role: "system",
-                content: `
-                You are a professional translator. Translate the user's input to ${lang} **as accurately as possible**.
-                Keep the tone, slang, offensive words, or profanity **exactly as they are**.
-                Do **not** censor, soften, or paraphrase — return a raw translation of the actual meaning and wording.
-                `.trim(),
-            },
+              role: "system",
+              content: `
+                You are a professional translator.
+                The user's input may be in Chinese, English, or any language.
+                Translate it to ${lang} as accurately as possible.
+                Preserve slang, insults, or profanity exactly as they are.
+                Do not censor or paraphrase. Return only the translation.
+                `.trim()
+          },
           {
             role: "user",
             content: text,
@@ -30,11 +33,58 @@ export const translateClient = {
       });
 
       const result = response.choices[0].message.content;
-      console.log("GPT Translation:", result);
       return result;
+
     } catch (err) {
-      console.error("OpenAI error:", err);
-      throw err; // можно вернуть fallback или пустую строку
+      if (err instanceof OpenAI.APIError) {
+        console.log(err.request_id);
+        console.log(err.status);
+        console.log(err.name);
+        console.log(err.headers);
+      } else {
+        throw new Error(err);
+      }
     }
   },
+  translateAudio: async (audio, lang) => {
+    const transcription = await client.audio.transcriptions.create({
+      file: fs.createReadStream(audio),
+      model: AUDIO_MODEL,
+      response_format: "text"
+    });
+
+    console.log("transcription ", transcription);
+
+    const translation = await translateClient.translateText(transcription, 'russian');
+    console.log("GPT Translation:", translation);
+
+    return translation;
+  },
+  translateImage: async (imageId, lang) => {
+    const transcription = await client.responses.create({
+      model: IMAGE_MODEL,
+      input: [
+        {
+          role: "system",
+          content: "Extract **all** text from the image exactly as it appears, including multiple labels or regions. No descriptions, no explanations, no translation — only raw text."
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "input_image",
+              file_id: imageId,
+            },
+          ],
+        },
+      ],
+    });
+
+    console.log(transcription);
+
+    const translation = await translateClient.translateText(transcription.output_text, "russian");
+    console.log(translation);
+
+    return translation;
+  }
 };

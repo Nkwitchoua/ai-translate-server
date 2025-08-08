@@ -8,6 +8,7 @@ export const authBotMiddleware = (req, res, next) => {
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET);
     req.user = { id: payload.user_id };
+    req.user_lang = { lang: payload.user_lang };
     next();
   } catch (err) {
     console.log(err);
